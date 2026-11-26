@@ -1,0 +1,13 @@
+[package]
+name = "sanray-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sanray-cli"
+path = "src/main.rs"
+
+[dependencies]
+sanray-protocol = { path = "../sanray-protocol" }
+sanray-mock = { path = "../sanray-mock" }

@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sanray-protocol",
+    "crates/sanray-mock",
+    "crates/sanray-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
