@@ -104,3 +104,83 @@ device is a stub (`codec::sanway_f2311`, marked `todo!()`), and the mock
 device speaks a separate, explicitly-fake `codec::sanray_native` protocol so
 the rest of the framework (transport abstraction, app logic, UI) can be built
 and tested now, then pointed at the real codec once it's known.
+
+## Update: both apps actually run now (Wine, via Docker)
+
+This machine's Wine install is 64-bit only (`wine64`/`wine` packages), and
+both exes are 32-bit (PE32/i386) — `apt install wine32` can't be used to fix
+that here: it's blocked by a dependency conflict traced to `libzstd1` being
+pinned at a custom Savoury1-PPA build (`1.5.5+dfsg-0ubuntu1~18.04.sav1`,
+see `~/Changelog.md` 2026-09-01) with no i386 counterpart. Forcing apt
+through that risks breaking whatever that pin was protecting (LibreOffice/
+ffmpeg4/old Python stdlibs per the Changelog) — not worth it for this.
+
+Instead: `docker pull scottyhardy/docker-wine:stable`, run it with
+`--ipc=host` (required — without it, Wine's X11 rendering fails with a
+`BadValue`/`MIT-SHM` error, because the container's IPC namespace doesn't
+match the host X server's) and `WINEARCH=win32`, mount the host's X11 socket
+and `win_binaries/`, and both apps come up fully interactive on the host's
+real display. `xdotool` (installed inside the container, not the host) +
+`wmctrl` (host) was enough to click through both apps' dialogs
+non-interactively and screenshot them (`docs/screenshots/`).
+
+| Main window | EQ/XOver tab | Routing matrix |
+| --- | --- | --- |
+| ![](screenshots/f2311_main.png) | ![](screenshots/f2311_eq_xover.png) | ![](screenshots/f2311_route.png) |
+
+| System/network tab | D10Q amp (same dialog family) |
+| --- | --- |
+| ![](screenshots/f2311_system.png) | ![](screenshots/d10q_main.png) |
+
+### What clicking through actually revealed
+
+Both apps' **"Config" dialog** (opened via any channel's EQ/XOver button) has
+tabs: `Route | Gain | Delay | Limiters | In A | In B | Out 1..4 | System`.
+Everything in `docs/DATA_MODEL.md` was updated from this; highlights that
+were *not* visible in the static DFM extraction:
+
+- **A real input routing matrix** (`Route` tab): each output independently
+  chooses which input(s) feed it (toggleable per input×output cell), not a
+  fixed 1:1 in→out mapping. See `docs/screenshots/f2311_route.png`.
+- **Connection type is USB, RS-485, *or* Ethernet** (radio buttons on the
+  main window) — the `System` tab has a real IP config (DHCP checkbox,
+  static IP, device name, device/chain ID) alongside the on-device/PC preset
+  save-load. So the "RS-485 chaining behind one USB-HID link" theory from
+  static analysis was only part of the picture — Ethernet is a first-class
+  transport too, not just a fallback. See `docs/screenshots/f2311_system.png`.
+- **Runtime defaults differ from the DFM's design-time placeholder text.**
+  E.g. the limiter dropdowns' DFM-recorded `Text` was `-25dB`/`0.5ms`/`100ms`,
+  but what the running app actually initializes to is **-6dB / 0.5ms /
+  100ms**. The DFM's `Text` property was just whatever the first item
+  happened to be at design time, not a reliable runtime default — trust the
+  live app over the DFM for anything described as a "default" in
+  `docs/DATA_MODEL.md` now that both are checkable.
+- **PEQ bands' real default frequencies and Q**: band defaults are **not**
+  `Q=1.0` as the DFM suggested (that was band 0's design-time placeholder) —
+  the live app initializes all bands to **Q=4.072** and spreads center
+  frequencies logarithmically (19.7, 26.3, 35.1, 46.8, 62.5, 83.4, 111.0,
+  149.0, 198.0, 265.0 Hz for bands 1-10, ...). See
+  `docs/screenshots/f2311_eq_xover.png`.
+- **Delay can be entered in milliseconds, metres, or feet** (a unit toggle
+  under the Delay tab) — a nice UX touch worth keeping regardless of wire
+  protocol, since it's just a client-side conversion by the speed of sound.
+- Confirmed the D10Q amp is the same UI/dialog family (`docs/screenshots/
+  d10q_main.png`), just with inputs labeled A-D instead of "In A"/"In B" and
+  4 outputs instead of the plate-amp's 4 — consistent with the shared-
+  protocol-family hypothesis.
+
+None of this reveals wire bytes (still needs a USB/network capture against
+real hardware), but it meaningfully improves confidence in the parameter
+model doc and surfaces a routing-matrix feature we hadn't planned for.
+
+### Design direction: improve on this, don't clone it
+
+Per explicit direction from the project owner: sanray should take the
+*useful ideas* from this exploration (the routing matrix, multi-unit
+addressing, metres/feet delay entry) rather than aim to reproduce this
+exact dialog-per-tab-per-channel UI/UX. The parameter *model* (gain ranges,
+filter math, limiter behavior) is what needs to match for the DSP to sound
+right; the interface around it is explicitly open to being rethought and
+improved — e.g. a single view across multiple devices at once was the
+original ask, which this tabbed-single-device-Config-dialog design doesn't
+support at all.

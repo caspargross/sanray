@@ -95,6 +95,40 @@ This is why `sanray_protocol::model` makes EQ band count a per-`DeviceModel`
 property (`DeviceModel::eq_bands()`) rather than a hardcoded constant --
 learned from this diff, not assumed up front.
 
+## Corrections and additions from actually running both apps (under Wine)
+
+The DFM extraction above was 100% static (never-run binary). Having since
+run both apps interactively (see "Update" section in
+`docs/REVERSE_ENGINEERING.md`), a few things are confirmed different from
+what the DFM's design-time property values suggested:
+
+- **Limiter runtime defaults are `-6dB` / `0.5ms` / `100ms`**, not
+  `-25dB`/`0.5ms`/`100ms` — the DFM's `-25dB` was just the dropdown's first
+  list item at design time, not what the app actually initializes to.
+- **PEQ band defaults are not `Q=1.0`** — every band initializes to
+  **`Q=4.072`**, with center frequencies spread logarithmically: band 1
+  19.7 Hz, 2 26.3, 3 35.1, 4 46.8, 5 62.5, 6 83.4, 7 111.0, 8 149.0, 9 198.0,
+  10 265.0 Hz (pattern continues upward for the remaining bands).
+- **Gain range's low end is confirmed around -40 dB** (seen as the initial/
+  rest position on a fresh launch) — still haven't pinned the exact top end
+  or confirmed the 0.1 dB step size assumption from the `Max=520` trackbar.
+- **Input routing is a real matrix, not fixed 1:1**: each output
+  independently selects which input(s) feed it (`Route` tab) — so the
+  model needs an explicit input→output routing matrix per unit, separate
+  from each channel's own gain/delay/EQ/etc.
+- **A third transport exists: Ethernet**, alongside USB and RS-485 (radio
+  buttons on the main window). The `System` tab has real IP configuration:
+  a DHCP checkbox, a static IPv4 address, a device name field, and the
+  device/chain-ID selector (also reachable this way, not just over
+  USB+RS-485). Also present there: on-device preset store/load (the 20
+  `Pre1:`..`Pre20:` slots from the static extraction), *and* a separate
+  "save/load 20-group to PC" pair of buttons implying a PC-side file format
+  for a whole preset bank — not yet captured (the buttons didn't produce a
+  visible file dialog while disconnected; worth retrying once connected, or
+  investigating further under Wine).
+- **Noise gate and device lock/password fields are also on this `System`
+  tab**, alongside the IP config, not a separate dialog.
+
 ## Open questions for dynamic capture
 
 - Exact gain slider → dB mapping (scale + offset; 520 steps, default at 399).
@@ -106,3 +140,10 @@ learned from this diff, not assumed up front.
 - Whether per-band EQ freq/gain/Q free-text edits have hidden clamped ranges
   enforced in code (not visible in the DFM) — e.g. plausible 20 Hz-20 kHz,
   ±18 dB, Q 0.1-10, but unconfirmed.
+- The Ethernet transport's protocol entirely (port, TCP vs UDP, framing) —
+  only knew it existed after running the app; never investigated further.
+- Whether "save/load 20-group to PC" writes a file in the same framing as
+  the wire protocol (plausible, if the app just (de)serializes one shared
+  in-memory struct either way) — would be a shortcut to the wire format
+  without needing a USB/network capture at all, worth trying once a device
+  is connected (so the save path actually has something to serialize).
